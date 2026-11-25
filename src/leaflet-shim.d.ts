@@ -25,6 +25,7 @@ declare namespace L {
   interface Path extends Layer {
     setStyle(style: PathStyle): this;
     bindTooltip(content: string | ((layer: Path) => string), options?: object): this;
+    setTooltipContent(content: string): this;
   }
 
   interface CircleMarker extends Path {}

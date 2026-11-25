@@ -3,7 +3,7 @@
 
 type LonLat = [number, number];
 type SnowPoint = { lat: number; lon: number };
-type Cell = { lat: number; lon: number; marker: L.CircleMarker };
+type Cell = { lat: number; lon: number; marker: L.CircleMarker; tooltipBound: boolean };
 type ChunkData = { days: string[]; values: (number | null)[][] };
 type PendingRequest = {
   month: string;
@@ -28,7 +28,7 @@ const ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive";
 const CACHE_PREFIX = "snow-quebec:chunk:v1:";
 const CACHE_INDEX_KEY = "snow-quebec:cache-index:v1";
 const PENDING_KEY = "snow-quebec:pending:v1";
-const CACHE_MONTH_LIMIT = 4;
+const CACHE_MONTH_LIMIT = 1;
 
 // Contour APPROXIMATIF du Québec (lon, lat), tracé à la main : sert à filtrer la grille.
 const QUEBEC: LonLat[] = [
@@ -100,6 +100,8 @@ function monthRange(month: string): { start: string; end: string } {
 const points = buildGrid();
 const monthCache = new Map<string, Map<string, (number | null)[]>>(); // mois -> date -> profondeur par point
 const inflight = new Map<string, Promise<Map<string, (number | null)[]>>>();
+const inflightControllers = new Map<string, AbortController>();
+let activeMonth = "";
 let cacheUnavailable = false;
 let pendingRequests = readPendingRequests();
 
@@ -107,6 +109,7 @@ async function fetchChunk(
   pts: SnowPoint[],
   start: string,
   end: string,
+  signal: AbortSignal,
 ): Promise<{ time: string[]; snow_depth: (number | null)[] }[]> {
   const q = new URLSearchParams({
     latitude: pts.map((p) => p.lat).join(","),
@@ -117,7 +120,7 @@ async function fetchChunk(
     models: "era5_land",
     timezone: "UTC",
   });
-  const res = await fetch(`${ARCHIVE_URL}?${q}`);
+  const res = await fetch(`${ARCHIVE_URL}?${q}`, { signal });
   if (!res.ok) {
     let reason = "";
     try {
@@ -217,6 +220,20 @@ function touchCacheMonth(month: string): void {
     }
   }
   storageSet(CACHE_INDEX_KEY, JSON.stringify(index));
+}
+
+function keepOnlyCachedMonth(month: string): void {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(CACHE_PREFIX)) continue;
+      const cachedMonth = key.slice(CACHE_PREFIX.length).split(":")[0];
+      if (cachedMonth !== month) localStorage.removeItem(key);
+    }
+  } catch (error) {
+    cacheWarning(error);
+  }
+  storageSet(CACHE_INDEX_KEY, JSON.stringify({ [month]: Date.now() }));
 }
 
 function chunkCacheKey(month: string, chunkIndex: number): string {
@@ -378,10 +395,11 @@ function loadMonth(month: string): Promise<Map<string, (number | null)[]>> {
   const pending = inflight.get(month);
   if (pending) return pending;
 
+  const controller = new AbortController();
   const p = (async () => {
     const { start, end } = monthRange(month);
     const byDate = new Map<string, (number | null)[]>();
-    touchCacheMonth(month);
+    if (activeMonth === month) touchCacheMonth(month);
     for (let c = 0; c < points.length; c += CHUNK) {
       const chunkIndex = c / CHUNK;
       const chunkPoints = points.slice(c, c + CHUNK);
@@ -396,11 +414,13 @@ function loadMonth(month: string): Promise<Map<string, (number | null)[]>> {
             pending?.points ?? chunkPoints,
             pending?.start ?? start,
             pending?.end ?? end,
+            controller.signal,
           );
           chunk = dailyValues(hourlies);
-          writeChunkCache(month, chunkIndex, chunk);
+          if (activeMonth === month) writeChunkCache(month, chunkIndex, chunk);
           removePendingRequest(month, chunkIndex);
         } catch (error) {
+          if (error instanceof Error && error.name === "AbortError") throw error;
           rememberFailedRequest(month, chunkIndex, chunkPoints, start, end, error);
           throw error;
         }
@@ -409,13 +429,20 @@ function loadMonth(month: string): Promise<Map<string, (number | null)[]>> {
       }
       mergeChunk(byDate, chunk, c);
     }
-    monthCache.set(month, byDate);
+    if (activeMonth === month) monthCache.set(month, byDate);
     return byDate;
   })();
   inflight.set(month, p);
+  inflightControllers.set(month, controller);
   p.then(
-    () => inflight.delete(month),
-    () => inflight.delete(month),
+    () => {
+      if (inflight.get(month) === p) inflight.delete(month);
+      if (inflightControllers.get(month) === controller) inflightControllers.delete(month);
+    },
+    () => {
+      if (inflight.get(month) === p) inflight.delete(month);
+      if (inflightControllers.get(month) === controller) inflightControllers.delete(month);
+    },
   );
   return p;
 }
@@ -454,7 +481,7 @@ const cells: Cell[] = points.map((p) => {
     fillOpacity: 0,
     renderer: snowRenderer,
   }).addTo(cellsLayer);
-  return { ...p, marker };
+  return { ...p, marker, tooltipBound: false };
 });
 function resizeMarkers(): void {
   const radius = Math.min(14, 6 + (map.getZoom() - 3) * 1.5);
@@ -494,17 +521,40 @@ let current = "";
 let renderToken = 0;
 let retryTimer: number | undefined;
 
+function activateMonth(month: string): void {
+  if (activeMonth === month) return;
+  activeMonth = month;
+  monthCache.clear();
+
+  for (const [inflightMonth, controller] of inflightControllers) {
+    if (inflightMonth === month) continue;
+    controller.abort();
+    inflightControllers.delete(inflightMonth);
+    inflight.delete(inflightMonth);
+  }
+
+  keepOnlyCachedMonth(month);
+  const remainingRequests = pendingRequests.filter((request) => request.month === month);
+  if (remainingRequests.length !== pendingRequests.length) {
+    pendingRequests = remainingRequests;
+    savePendingRequests();
+  }
+}
+
 function paint(day: string, rows: Map<string, (number | null)[]>): void {
   const row = rows.get(day);
   cells.forEach((c, i) => {
     const v = row ? row[i] : null;
-    if (v == null) {
-      c.marker.setStyle({ fillOpacity: 0 });
-      c.marker.bindTooltip(`${day} : pas de donnée`);
-      return;
+    const tooltip = v == null ? `${day} : pas de donnée` : `${day} : ${(v * 100).toFixed(0)} cm de neige au sol`;
+    c.marker.setStyle(v == null
+      ? { fillOpacity: 0 }
+      : { fillColor: snowColor(v), fillOpacity: v < 0.005 ? 0.2 : 0.78 });
+    if (c.tooltipBound) {
+      c.marker.setTooltipContent(tooltip);
+    } else {
+      c.marker.bindTooltip(tooltip);
+      c.tooltipBound = true;
     }
-    c.marker.setStyle({ fillColor: snowColor(v), fillOpacity: v < 0.005 ? 0.2 : 0.78 });
-    c.marker.bindTooltip(`${day} : ${(v * 100).toFixed(0)} cm de neige au sol`);
   });
 }
 
@@ -579,6 +629,7 @@ function retryCurrentMonth(): void {
 }
 
 async function show(day: string): Promise<void> {
+  activateMonth(monthOf(day));
   current = day;
   updateDateControls(day);
   const token = ++renderToken;
