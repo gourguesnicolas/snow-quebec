@@ -162,9 +162,8 @@ const totalDays = daysBetween(START_DATE, maxDate);
 const map = L.map("map", { zoomControl: false, minZoom: 3, maxZoom: 9 });
 L.control.zoom({ position: "topright" }).addTo(map);
 L.control.scale({ position: "bottomright", imperial: false }).addTo(map);
-L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-  attribution: "&copy; OpenStreetMap &copy; CARTO | Neige : ERA5-Land (Copernicus/ECMWF) via Open-Meteo",
-  subdomains: "abcd",
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "&copy; OpenStreetMap contributors | Neige : ERA5-Land (Copernicus/ECMWF) via Open-Meteo",
 }).addTo(map);
 map.fitBounds([[45, -79.8], [62.6, -57]]);
 
