@@ -12,17 +12,22 @@ declare namespace L {
     weight?: number;
     opacity?: number;
     interactive?: boolean;
+    radius?: number;
+    renderer?: Renderer;
   }
 
   interface Layer {
     addTo(target: Map | LayerGroup): this;
   }
 
+  interface Renderer extends Layer {}
+
   interface Path extends Layer {
     setStyle(style: PathStyle): this;
     bindTooltip(content: string | ((layer: Path) => string), options?: object): this;
   }
 
+  interface CircleMarker extends Path {}
   interface Rectangle extends Path {}
   interface TileLayer extends Layer {}
 
@@ -36,9 +41,13 @@ declare namespace L {
 
   interface Map {
     fitBounds(bounds: BoundsExpression, options?: object): this;
+    getZoom(): number;
+    on(event: string, handler: () => void): this;
   }
 
   function map(element: string | HTMLElement, options?: object): Map;
+  function canvas(options?: object): Renderer;
+  function circleMarker(latlng: [number, number], options?: PathStyle): CircleMarker;
   function tileLayer(urlTemplate: string, options?: object): TileLayer;
   function rectangle(bounds: BoundsExpression, options?: PathStyle): Rectangle;
   function layerGroup(): LayerGroup;
