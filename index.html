@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Neige au Québec depuis 1990</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <style>
+    :root { --ink:#0f172a; --muted:#475569; --panel:#ffffffee; --line:#cbd5e1; --accent:#08519c; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; font: 14px/1.4 system-ui, sans-serif; color: var(--ink); background: #f1f5f9; }
+    body { display: flex; flex-direction: column; }
+    header { padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--line); }
+    header h1 { margin: 0; font-size: 17px; }
+    header p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+    main { flex: 1; min-height: 0; padding: 12px; }
+    #map-wrap { position: relative; height: 100%; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    #map { position: absolute; inset: 0; background: #e2e8f0; }
+    #panel {
+      position: absolute; top: 10px; left: 10px; z-index: 1000; width: min(340px, calc(100% - 80px));
+      background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+      box-shadow: 0 1px 6px #0002; backdrop-filter: blur(4px);
+    }
+    #date-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+    #date-label { flex: 1; text-align: center; font-weight: 600; font-size: 16px; font-variant-numeric: tabular-nums; }
+    #panel button {
+      border: 1px solid var(--line); background: #fff; border-radius: 5px; padding: 2px 7px; cursor: pointer; font: inherit; color: var(--accent);
+    }
+    #panel button:hover { background: #eff6ff; }
+    #slider { width: 100%; accent-color: var(--accent); }
+    #ends { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+    #status { min-height: 16px; font-size: 12px; color: var(--muted); margin-top: 2px; }
+    #legend { margin-top: 6px; }
+    #legend-bar { height: 10px; border-radius: 3px; border: 1px solid var(--line); }
+    #legend-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Neige au sol au Québec</h1>
+    <p>Profondeur de neige à midi UTC, de 1990 à aujourd'hui — plus c'est foncé, plus il y en a.</p>
+  </header>
+  <main>
+    <div id="map-wrap">
+      <div id="map"></div>
+      <div id="panel">
+        <div id="date-row">
+          <button id="prev-year" title="−1 an">«</button>
+          <button id="prev" title="−1 jour">‹</button>
+          <span id="date-label">—</span>
+          <button id="next" title="+1 jour">›</button>
+          <button id="next-year" title="+1 an">»</button>
+        </div>
+        <input id="slider" type="range" min="0" max="1" step="1" value="0" aria-label="Date" />
+        <div id="ends"><span>1990</span><span>aujourd'hui</span></div>
+        <div id="status"></div>
+        <div id="legend">
+          <div id="legend-bar"></div>
+          <div id="legend-scale"><span>0 cm</span><span id="legend-max"></span></div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="dist/main.js"></script>
+</body>
+</html>
